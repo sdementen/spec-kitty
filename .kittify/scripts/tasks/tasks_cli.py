@@ -27,7 +27,6 @@ from task_helpers import (  # noqa: E402
     ensure_lane,
     find_repo_root,
     git_status_lines,
-    is_file_tracked,
     normalize_note,
     now_utc,
     path_has_changes,
@@ -253,15 +252,7 @@ def move_command(args: argparse.Namespace) -> None:
     status_lines = git_status_lines(repo_root)
     if not args.dry_run:
         source_rel = wp.path.relative_to(repo_root)
-        # Ensure the source file is tracked before attempting to move it
-        if not is_file_tracked(repo_root, wp.path):
-            # File is untracked - add it first so git rm will work later
-            if wp.path.exists():
-                run_git(["add", str(source_rel)], cwd=repo_root, check=True)
-                status_lines = git_status_lines(repo_root)
-                print(f"[spec-kitty] Added untracked file: {source_rel}", file=sys.stderr)
-        elif path_has_changes(status_lines, source_rel):
-            # File is tracked but has unstaged changes - stage them
+        if path_has_changes(status_lines, source_rel):
             run_git(["add", str(source_rel)], cwd=repo_root, check=True)
             status_lines = git_status_lines(repo_root)
     new_path = (
@@ -661,9 +652,9 @@ def merge_command(args: argparse.Namespace) -> None:
     feature = _resolve_feature(repo_root, args.feature)
 
     current_branch = run_git([
-        "rev-parse",
-        "--abbrev-ref",
-        "HEAD",
+            "rev-parse",
+            "--abbrev-ref",
+            "HEAD",
     ], cwd=repo_root, check=True).stdout.strip()
 
     if current_branch == args.target:
@@ -880,7 +871,35 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _convert_ps_args_to_python(argv: Optional[List[str]]) -> Optional[List[str]]:
+    """Convert PowerShell-style arguments (PascalCase) to Python argparse format (kebab-case).
+
+    Examples:
+        -DryRun -> --dry-run
+        -KeepBranch -> --keep-branch
+        -ShellPid -> --shell-pid
+    """
+    if argv is None:
+        return None
+
+    converted = []
+    for arg in argv:
+        if arg.startswith('-') and (param:= arg.lstrip("-")):# and param[0].isupper():
+            kebab = ''.join([
+                '-' + c.lower() if c.isupper() and i > 0 else c.lower()
+                for i, c in enumerate(param)
+            ])
+            converted.append(f'--{kebab}')
+        else:
+            converted.append(arg)
+
+    return converted
+
+
 def main(argv: Optional[List[str]] = None) -> int:
+    # Convert PowerShell-style arguments to Python argparse format
+    argv = _convert_ps_args_to_python(argv)
+
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
